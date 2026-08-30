@@ -117,44 +117,6 @@
 
   #note { color: var(--muted); font-size: .78rem; text-align: center; min-height: 1.2em; }
 
-  /* 送り先の設定。最初の一度だけ使う */
-  #setup {
-    display: none;
-    padding: 16px;
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    background: var(--panel);
-    font-size: .85rem;
-  }
-  #setup.open { display: block; }
-  #setup b { display: block; margin-bottom: 12px; color: var(--accent); }
-  #setup label { display: block; margin-bottom: 12px; color: var(--muted); font-size: .78rem; }
-  #setup input {
-    width: 100%;
-    margin-top: 5px;
-    padding: 11px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: #101317;
-    color: var(--text);
-    font-family: ui-monospace, Menlo, monospace;
-    font-size: .74rem;
-  }
-  #setup p { margin: 10px 0 0; color: var(--muted); font-size: .72rem; }
-  #setupSave {
-    width: 100%;
-    padding: 12px;
-    background: var(--accent);
-    font-size: .9rem;
-  }
-  #setupToggle {
-    padding: 9px;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--muted);
-    font-size: .76rem;
-  }
-
 </style>
 </head>
 <body>
@@ -185,19 +147,7 @@
 
 <div id="note"></div>
 
-<div id="setup">
-  <b>送り先の設定（最初に一度だけ）</b>
-  <label>仕事つぶやき用 Webhook URL
-    <input id="hookWork" type="url" placeholder="https://discord.com/api/webhooks/...">
-  </label>
-  <label>プライベート用 Webhook URL
-    <input id="hookPriv" type="url" placeholder="https://discord.com/api/webhooks/...">
-  </label>
-  <button id="setupSave">保存する</button>
-  <p>この端末の中だけに保存されます。</p>
-</div>
 
-<button id="setupToggle">設定</button>
 
 <script>
 // ============================================================
@@ -214,10 +164,19 @@ const DESTS = {
   "other":  { label: "その他",             ch: "priv", prefix: "別 " },
 };
 
-// Discord の Webhook URL。端末の中だけに保存し、コードには埋め込まない。
-// (公開リポジトリに秘密を置かないため)
-function hookUrl(ch) { return localStorage.getItem("hook_" + ch) || ""; }
-function setHook(ch, v) { localStorage.setItem("hook_" + ch, v.trim()); }
+// Discord の Webhook URL。
+// このファイルは非公開の場所に置く前提で埋め込んでいる。公開の場には置かないこと。
+// 万一漏れたときは、Discordの「サーバー設定 → 連携サービス → ウェブフック」で
+// 当該ウェブフックを削除すれば即座に無効になる。読み取りはされない（投稿専用）。
+const BASE = "https://discord.com/api/webhooks/";
+const HOOKS = {
+  work: BASE + "1543524520562790430" + "/" +
+        "iTfrW69D0kmIwea9KUXPpMgWoJgZvh6bEkiRzBgOoPzoyFrDa_eqJgwbHXssZVowb24E",
+  priv: BASE + "1543524742806380614" + "/" +
+        "rFwGMrdVNphOuUdBvpPYtcofAT-TEHP0Iqwzkb9SV-MP3QYQ2Hi7VLY3NJlUfgGzkSeW",
+};
+
+function hookUrl(ch) { return HOOKS[ch] || ""; }
 
 // ============================================================
 // 2. 画面の部品を取っておく
@@ -361,7 +320,7 @@ async function send(key) {
 
   const d = DESTS[key];
   const hook = hookUrl(d.ch);
-  if (!hook) { say("先に送り先の設定が要ります"); openSetup(); return; }
+  if (!hook) { say("送り先が未設定です"); return; }
 
   let text = d.prefix + body;
 
@@ -413,34 +372,6 @@ function setBusy(on) {
 document.querySelectorAll(".dests button[data-key]").forEach(b => {
   b.onclick = () => send(b.dataset.key);
 });
-
-// ============================================================
-// 6. 送り先の設定 —— Webhook URL を端末に覚えさせる
-// ============================================================
-const $setup = document.getElementById("setup");
-const $hookWork = document.getElementById("hookWork");
-const $hookPriv = document.getElementById("hookPriv");
-
-function openSetup() {
-  $hookWork.value = hookUrl("work");
-  $hookPriv.value = hookUrl("priv");
-  $setup.classList.add("open");
-}
-
-document.getElementById("setupToggle").onclick = () => {
-  if ($setup.classList.contains("open")) $setup.classList.remove("open");
-  else openSetup();
-};
-
-document.getElementById("setupSave").onclick = () => {
-  setHook("work", $hookWork.value);
-  setHook("priv", $hookPriv.value);
-  $setup.classList.remove("open");
-  say("送り先を保存しました");
-};
-
-// 一度も設定していなければ、開いた時点で設定画面を出す
-if (!hookUrl("work") && !hookUrl("priv")) openSetup();
 
 // ============================================================
 // 7. 句読点ボタン —— 話している最中でも押せる
