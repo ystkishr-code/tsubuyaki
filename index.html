@@ -311,7 +311,7 @@ function send(key) {
   const backHere = location.origin + location.pathname;
 
   // encodeURIComponent = 日本語や改行をURLで壊れない形に変換する
-  const url = "obsidian://adv-uri"
+  const url = "obsidian://advanced-uri"
     + `?vault=${encodeURIComponent(VAULT)}`
     + `&filepath=${encodeURIComponent(path)}`
     + `&data=${encodeURIComponent(payload)}`
