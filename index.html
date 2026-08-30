@@ -306,14 +306,23 @@ function send(key) {
   const stamp = new Date().toTimeString().slice(0, 5);  // "14:32"
   const payload = d.mode === "append" ? `\n\n**${stamp}**\n${body}` : body;
 
+  // 書き込みが終わったら、このページへ自動で戻ってくるよう指定する
+  // (x-success = Advanced URI が処理後に開くURL。これでSafariへ自動で戻る)
+  const backHere = location.origin + location.pathname;
+
   // encodeURIComponent = 日本語や改行をURLで壊れない形に変換する
   const url = "obsidian://adv-uri"
     + `?vault=${encodeURIComponent(VAULT)}`
     + `&filepath=${encodeURIComponent(path)}`
     + `&data=${encodeURIComponent(payload)}`
-    + `&mode=${d.mode}`;
+    + `&mode=${d.mode}`
+    + `&x-success=${encodeURIComponent(backHere)}`;
 
-  location.href = url;   // これでObsidianが開いて書き込まれる
+  // 戻ってきたときに送信済みの文章が残らないよう、送る前に空にしておく
+  $text.value = "";
+  localStorage.setItem("draft", "");
+
+  location.href = url;   // これでObsidianが開いて書き込まれ、終わると自動で戻ってくる
   say(`${d.label} へ送りました`);
 }
 
