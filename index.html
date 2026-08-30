@@ -116,6 +116,45 @@
   .dests button.danger:active { background: #4a1f1a; color: var(--text); }
 
   #note { color: var(--muted); font-size: .78rem; text-align: center; min-height: 1.2em; }
+
+  /* 送り先の設定。最初の一度だけ使う */
+  #setup {
+    display: none;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+    font-size: .85rem;
+  }
+  #setup.open { display: block; }
+  #setup b { display: block; margin-bottom: 12px; color: var(--accent); }
+  #setup label { display: block; margin-bottom: 12px; color: var(--muted); font-size: .78rem; }
+  #setup input {
+    width: 100%;
+    margin-top: 5px;
+    padding: 11px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #101317;
+    color: var(--text);
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: .74rem;
+  }
+  #setup p { margin: 10px 0 0; color: var(--muted); font-size: .72rem; }
+  #setupSave {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    font-size: .9rem;
+  }
+  #setupToggle {
+    padding: 9px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    font-size: .76rem;
+  }
+
 </style>
 </head>
 <body>
@@ -146,27 +185,39 @@
 
 <div id="note"></div>
 
+<div id="setup">
+  <b>送り先の設定（最初に一度だけ）</b>
+  <label>仕事つぶやき用 Webhook URL
+    <input id="hookWork" type="url" placeholder="https://discord.com/api/webhooks/...">
+  </label>
+  <label>プライベート用 Webhook URL
+    <input id="hookPriv" type="url" placeholder="https://discord.com/api/webhooks/...">
+  </label>
+  <button id="setupSave">保存する</button>
+  <p>この端末の中だけに保存されます。</p>
+</div>
+
+<button id="setupToggle">設定</button>
+
 <script>
 // ============================================================
-// 1. 設定 —— vault名と、5つの保存先
+// 1. 設定 —— 5つの送り先
 // ============================================================
-const VAULT = "ObsidianVault";
-
-// 今日の日付を 2026-08-30 の形にする関数
-function today() {
-  const d = new Date();
-  const p = n => String(n).padStart(2, "0");   // 8 -> "08"
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-// 保存先の定義。path は関数にしておくと、日付入りのパスも同じ形で書ける
+// 保存先の定義。
+//   ch     … どちらのDiscordチャンネルへ送るか（work / priv）
+//   prefix … PC側のbotが振り分けに使う接頭辞。無印はつぶやき扱い。
 const DESTS = {
-  "work-t": { label: "仕事つぶやき",        path: () => "02 今日の定時報告/今日のつぶやき（仕事）.md", mode: "append" },
-  "priv-t": { label: "プライベートつぶやき", path: () => "02 今日の定時報告/今日のつぶやき.md",       mode: "append" },
-  "work-a": { label: "仕事について",        path: () => `08 音声入力・ジャーナリング/${today()} 仕事について.md`,       mode: "append" },
-  "priv-a": { label: "プライベートについて", path: () => `08 音声入力・ジャーナリング/${today()} プライベートについて.md`, mode: "append" },
-  "other":  { label: "その他",             path: title => `01 inbox/${title}.md`,                  mode: "new" },
+  "work-t": { label: "仕事つぶやき",        ch: "work", prefix: ""   },
+  "priv-t": { label: "プライベートつぶやき", ch: "priv", prefix: ""   },
+  "work-a": { label: "仕事について",        ch: "work", prefix: "録 " },
+  "priv-a": { label: "プライベートについて", ch: "priv", prefix: "録 " },
+  "other":  { label: "その他",             ch: "priv", prefix: "別 " },
 };
+
+// Discord の Webhook URL。端末の中だけに保存し、コードには埋め込まない。
+// (公開リポジトリに秘密を置かないため)
+function hookUrl(ch) { return localStorage.getItem("hook_" + ch) || ""; }
+function setHook(ch, v) { localStorage.setItem("hook_" + ch, v.trim()); }
 
 // ============================================================
 // 2. 画面の部品を取っておく
@@ -285,45 +336,78 @@ $mic.onclick = () => {
 };
 
 // ============================================================
-// 5. Obsidianへ渡す —— URLを組み立てて開くだけ
+// 5. Discordへ送る —— アプリを離れずに、その場で送信する
 // ============================================================
-function send(key) {
+// obsidian:// を使うとObsidianが前面に出てしまう。ここではDiscordへHTTPで送り、
+// PC側で常駐しているbotがvaultへ書き込む。画面はこのまま動かない。
+// Discordの本文は2000文字までと決まっている。超える分は切って続けて送る。
+// 切る位置は、なるべく改行のところを選んで文の途中で割らないようにする。
+function splitContent(text, limit = 1900) {
+  const parts = [];
+  let rest = text;
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf("\n", limit);
+    if (cut < limit * 0.5) cut = limit;   // 改行が見つからなければ諦めて切る
+    parts.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
+  }
+  if (rest.trim()) parts.push(rest);
+  return parts;
+}
+
+async function send(key) {
   const body = $text.value.trim();
   if (!body) { say("本文が空です"); return; }
 
   const d = DESTS[key];
-  let path;
+  const hook = hookUrl(d.ch);
+  if (!hook) { say("先に送り先の設定が要ります"); openSetup(); return; }
 
+  let text = d.prefix + body;
+
+  // 「その他」だけは題名が要る。1行目を題名にしてbotへ渡す。
   if (key === "other") {
     const title = prompt("ノートの題名");
     if (!title) return;
-    path = d.path(title.trim());
-  } else {
-    path = d.path();
+    text = `別 ${title.trim()}\n${body}`;
   }
 
-  // 追記のときは、前の記録とくっつかないように空行と時刻を足す
-  const stamp = new Date().toTimeString().slice(0, 5);  // "14:32"
-  const payload = d.mode === "append" ? `\n\n**${stamp}**\n${body}` : body;
+  const parts = splitContent(text);
 
-  // 書き込みが終わったら、このページへ自動で戻ってくるよう指定する
-  // (x-success = Advanced URI が処理後に開くURL。これでSafariへ自動で戻る)
-  const backHere = location.origin + location.pathname;
+  setBusy(true);
+  try {
+    for (const part of parts) {
+      // ?wait=true を付けると、Discordが保存を終えてから返事をくれる。
+      // 付けないと204が返るだけで、本当に保存されたかが分からない。
+      const res = await fetch(hook + "?wait=true", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: part,
+          // 本文に @everyone などが混ざっても通知が飛ばないようにする
+          allowed_mentions: { parse: [] },
+        }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+    }
 
-  // encodeURIComponent = 日本語や改行をURLで壊れない形に変換する
-  const url = "obsidian://advanced-uri"
-    + `?vault=${encodeURIComponent(VAULT)}`
-    + `&filepath=${encodeURIComponent(path)}`
-    + `&data=${encodeURIComponent(payload)}`
-    + `&mode=${d.mode}`
-    + `&x-success=${encodeURIComponent(backHere)}`;
+    // 送れたときだけ本文を空にする。失敗したら書いたものは残す。
+    $text.value = "";
+    localStorage.setItem("draft", "");
+    say(parts.length > 1
+      ? `${d.label} へ送りました（${parts.length}回に分けました）`
+      : `${d.label} へ送りました`);
+  } catch (e) {
+    say("送れませんでした（本文は残しています）");
+  } finally {
+    setBusy(false);
+  }
+}
 
-  // 戻ってきたときに送信済みの文章が残らないよう、送る前に空にしておく
-  $text.value = "";
-  localStorage.setItem("draft", "");
-
-  location.href = url;   // これでObsidianが開いて書き込まれ、終わると自動で戻ってくる
-  say(`${d.label} へ送りました`);
+// 送信中は二重に押せないようにする
+function setBusy(on) {
+  document.querySelectorAll(".dests button[data-key]").forEach(b => b.disabled = on);
+  $status.textContent = on ? "送信中" : (listening ? "聞いています" : "待機中");
 }
 
 document.querySelectorAll(".dests button[data-key]").forEach(b => {
@@ -331,7 +415,35 @@ document.querySelectorAll(".dests button[data-key]").forEach(b => {
 });
 
 // ============================================================
-// 6. 句読点ボタン —— 話している最中でも押せる
+// 6. 送り先の設定 —— Webhook URL を端末に覚えさせる
+// ============================================================
+const $setup = document.getElementById("setup");
+const $hookWork = document.getElementById("hookWork");
+const $hookPriv = document.getElementById("hookPriv");
+
+function openSetup() {
+  $hookWork.value = hookUrl("work");
+  $hookPriv.value = hookUrl("priv");
+  $setup.classList.add("open");
+}
+
+document.getElementById("setupToggle").onclick = () => {
+  if ($setup.classList.contains("open")) $setup.classList.remove("open");
+  else openSetup();
+};
+
+document.getElementById("setupSave").onclick = () => {
+  setHook("work", $hookWork.value);
+  setHook("priv", $hookPriv.value);
+  $setup.classList.remove("open");
+  say("送り先を保存しました");
+};
+
+// 一度も設定していなければ、開いた時点で設定画面を出す
+if (!hookUrl("work") && !hookUrl("priv")) openSetup();
+
+// ============================================================
+// 7. 句読点ボタン —— 話している最中でも押せる
 // ============================================================
 // 話している最中は、まだ文が確定していない。だからその場では本文に入れず、
 // 「次に確定する分の末尾に付ける記号」として預かっておく。
@@ -350,7 +462,7 @@ document.getElementById("maru").onclick = () => mark("。");
 document.getElementById("ten").onclick  = () => mark("、");
 
 // ============================================================
-// 7. 消す
+// 8. 消す
 // ============================================================
 document.getElementById("clear").onclick = () => {
   if ($text.value && confirm("消しますか")) { $text.value = ""; $interim.textContent = ""; }
