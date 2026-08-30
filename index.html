@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<!-- スマホの画面幅に合わせる。これが無いとPC用の縮小表示になる -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- ホーム画面に追加したときに、Safariのバーを消してアプリらしく見せる指定 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="つぶやき">
+<title>つぶやき</title>
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1e2228;
+    --line: #2e343d;
+    --text: #eef1f5;
+    --muted: #8d97a5;
+    --accent: #d4713c;
+    --accent-dim: #6b3a1e;
+    --ok: #3f8f6f;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    /* safe-area-inset = iPhoneのノッチやホームバーに隠れないための余白 */
+    padding: calc(env(safe-area-inset-top) + 12px) 14px calc(env(safe-area-inset-bottom) + 12px);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+    font-size: 17px;
+  }
+
+  header { display: flex; align-items: center; justify-content: space-between; }
+  h1 { margin: 0; font-size: 1.05rem; letter-spacing: .04em; }
+
+  /* 状態表示。録音中かどうかを目で分かるようにする */
+  #status {
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: .78rem;
+  }
+  #status.live { background: var(--accent-dim); color: #ffd9c0; }
+
+  /* 本文欄。ここは手入力もキーボードの音声入力も使える */
+  #text {
+    flex: 1;
+    min-height: 220px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+    line-height: 1.7;
+    resize: none;
+  }
+  #text:focus { outline: 2px solid var(--accent); }
+
+  /* 認識途中の文字。確定前なので薄く出す */
+  #interim {
+    min-height: 1.6em;
+    padding: 0 4px;
+    color: var(--muted);
+    font-size: .92rem;
+  }
+
+  button {
+    border: 0;
+    border-radius: 14px;
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    -webkit-appearance: none;
+  }
+
+  #mic {
+    padding: 16px;
+    background: var(--accent);
+    font-size: 1.05rem;
+  }
+  #mic.on { background: #b8351f; }
+  #mic:disabled { background: var(--panel); color: var(--muted); }
+
+  .dests { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .dests button {
+    padding: 14px 10px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    font-size: .92rem;
+    font-weight: 500;
+  }
+  .dests button:active { background: var(--accent-dim); }
+  /* 消すボタンだけは送信先ではないので、色を落として区別する */
+  .dests button.danger { color: var(--muted); background: transparent; }
+  .dests button.danger:active { background: #4a1f1a; color: var(--text); }
+
+  #note { color: var(--muted); font-size: .78rem; text-align: center; min-height: 1.2em; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>つぶやき</h1>
+  <span id="status">待機中</span>
+</header>
+
+<textarea id="text" placeholder="ここに文字が入ります。マイクを押して話すか、直接打ってください。"></textarea>
+<div id="interim"></div>
+
+<button id="mic">🎙 話す</button>
+
+<!-- 保存先の5択。押した瞬間にObsidianへ渡す -->
+<div class="dests">
+  <button data-key="work-t">仕事つぶやき</button>
+  <button data-key="priv-t">プライベートつぶやき</button>
+  <button data-key="work-a">仕事について</button>
+  <button data-key="priv-a">プライベートについて</button>
+  <button data-key="other">その他（新規ノート）</button>
+  <button id="clear" class="danger">消す</button>
+</div>
+
+<div id="note"></div>
+
+<script>
+// ============================================================
+// 1. 設定 —— vault名と、5つの保存先
+// ============================================================
+const VAULT = "ObsidianVault";
+
+// 今日の日付を 2026-08-30 の形にする関数
+function today() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, "0");   // 8 -> "08"
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// 保存先の定義。path は関数にしておくと、日付入りのパスも同じ形で書ける
+const DESTS = {
+  "work-t": { label: "仕事つぶやき",        path: () => "02 今日の定時報告/今日のつぶやき（仕事）.md", mode: "append" },
+  "priv-t": { label: "プライベートつぶやき", path: () => "02 今日の定時報告/今日のつぶやき.md",       mode: "append" },
+  "work-a": { label: "仕事について",        path: () => `08 音声入力・ジャーナリング/${today()} 仕事について.md`,       mode: "append" },
+  "priv-a": { label: "プライベートについて", path: () => `08 音声入力・ジャーナリング/${today()} プライベートについて.md`, mode: "append" },
+  "other":  { label: "その他",             path: title => `01 inbox/${title}.md`,                  mode: "new" },
+};
+
+// ============================================================
+// 2. 画面の部品を取っておく
+// ============================================================
+const $text    = document.getElementById("text");
+const $interim = document.getElementById("interim");
+const $mic     = document.getElementById("mic");
+const $status  = document.getElementById("status");
+const $note    = document.getElementById("note");
+
+function say(msg) {
+  $note.textContent = msg;
+  setTimeout(() => { if ($note.textContent === msg) $note.textContent = ""; }, 4000);
+}
+
+// ============================================================
+// 3. 句読点を足す —— 認識結果は記号を一切返さないので自分で付ける
+// ============================================================
+// 話し言葉は文末の形が決まっている。その形から記号を選ぶ。
+//
+// 問いかけで終わっている → 「？」
+const ASK  = /(ですか|ますか|でしょうか|だろうか|のか|かな|かね|っけ)$/;
+//
+// まだ話が続く語尾。ここで切れたのは文の途中なので読点
+const CONT = /(て|で|けど|けれど|けれども|ですが|ますが|だけど|ので|から|ため|し|が|たり|つつ|ながら|ものの|なら|れば|とか|には|では|とは)$/;
+//
+// 文の途中に出てくる、明らかな接続表現。その後ろに読点を入れる
+const MID  = /(けれども|けれど|けど|ですが|ますが|だけど|なので|ので|ですから|だから|ところが|しかし|ただし|つまり|例えば|一方で)(?![、。\n])/g;
+
+function punctuate(raw) {
+  let t = raw.trim();
+  if (!t) return "";
+  // 1. 文の途中の接続表現に読点を入れる
+  t = t.replace(MID, "$1、");
+
+  // 2. すでに記号で終わっているならそのまま
+  if (/[。、！？!?」）\n]$/.test(t)) return t;
+
+  // 3. 語尾を見て記号を選ぶ。判定がつかないものは句点にする
+  if (ASK.test(t))  return t + "？";
+  if (CONT.test(t)) return t + "、";
+  return t + "。";
+}
+
+// ============================================================
+// 4. 音声認識 —— ブラウザが持っている機能を借りる
+// ============================================================
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;      // 認識エンジン本体
+let listening = false; // いま聞いている最中か
+let stopWanted = false; // 自分で止めたのか、勝手に止まったのか
+
+if (!SR) {
+  $mic.disabled = true;
+  $mic.textContent = "音声認識が使えません";
+  say("この端末では手入力を使ってください");
+} else {
+  rec = new SR();
+  rec.lang = "ja-JP";
+  rec.continuous = true;      // 一区切りで終わらせず、話し続けられるようにする
+  rec.interimResults = true;  // 確定前の文字も受け取る = リアルタイム表示の正体
+
+  // 結果が届くたびに呼ばれる
+  rec.onresult = (e) => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) {
+        // 確定した分に句読点を整えてから本文へ足す
+        $text.value += punctuate(t);
+        $text.scrollTop = $text.scrollHeight;
+      } else {
+        interim += t;  // まだ確定していない分
+      }
+    }
+    $interim.textContent = interim;
+  };
+
+  // iOSは黙っていると勝手に止まる。止めたつもりが無ければ、すぐ掛け直す
+  rec.onend = () => {
+    if (!stopWanted) { try { rec.start(); return; } catch (_) {} }
+    listening = false;
+    setMic(false);
+  };
+
+  rec.onerror = (e) => {
+    if (e.error === "not-allowed") say("マイクが許可されていません");
+    else if (e.error !== "no-speech") say("認識エラー: " + e.error);
+  };
+}
+
+function setMic(on) {
+  $mic.classList.toggle("on", on);
+  $mic.textContent = on ? "■ 止める" : "🎙 話す";
+  $status.classList.toggle("live", on);
+  $status.textContent = on ? "聞いています" : "待機中";
+  if (!on) $interim.textContent = "";
+}
+
+$mic.onclick = () => {
+  if (!rec) return;
+  if (listening) {
+    stopWanted = true;
+    rec.stop();
+  } else {
+    stopWanted = false;
+    try { rec.start(); listening = true; setMic(true); }
+    catch (_) { say("もう一度押してください"); }
+  }
+};
+
+// ============================================================
+// 5. Obsidianへ渡す —— URLを組み立てて開くだけ
+// ============================================================
+function send(key) {
+  const body = $text.value.trim();
+  if (!body) { say("本文が空です"); return; }
+
+  const d = DESTS[key];
+  let path;
+
+  if (key === "other") {
+    const title = prompt("ノートの題名");
+    if (!title) return;
+    path = d.path(title.trim());
+  } else {
+    path = d.path();
+  }
+
+  // 追記のときは、前の記録とくっつかないように空行と時刻を足す
+  const stamp = new Date().toTimeString().slice(0, 5);  // "14:32"
+  const payload = d.mode === "append" ? `\n\n**${stamp}**\n${body}` : body;
+
+  // encodeURIComponent = 日本語や改行をURLで壊れない形に変換する
+  const url = "obsidian://adv-uri"
+    + `?vault=${encodeURIComponent(VAULT)}`
+    + `&filepath=${encodeURIComponent(path)}`
+    + `&data=${encodeURIComponent(payload)}`
+    + `&mode=${d.mode}`;
+
+  location.href = url;   // これでObsidianが開いて書き込まれる
+  say(`${d.label} へ送りました`);
+}
+
+document.querySelectorAll(".dests button[data-key]").forEach(b => {
+  b.onclick = () => send(b.dataset.key);
+});
+
+// ============================================================
+// 6. 消す
+// ============================================================
+document.getElementById("clear").onclick = () => {
+  if ($text.value && confirm("消しますか")) { $text.value = ""; $interim.textContent = ""; }
+};
+
+// 書きかけを端末に残しておく。閉じても消えないように
+$text.value = localStorage.getItem("draft") || "";
+setInterval(() => localStorage.setItem("draft", $text.value), 1000);
+</script>
+</body>
+</html>
