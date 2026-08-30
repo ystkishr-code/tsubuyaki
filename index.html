@@ -90,6 +90,15 @@
   #mic.on { background: #b8351f; }
   #mic:disabled { background: var(--panel); color: var(--muted); }
 
+  /* 話すボタンの横に句読点。しゃべりながら親指で押せる位置に置く */
+  .speak { display: grid; grid-template-columns: 1fr 66px 66px; gap: 8px; }
+  .mark {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    font-size: 1.25rem;
+  }
+  .mark:active { background: var(--accent-dim); }
+
   .dests { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .dests button {
     padding: 14px 10px;
@@ -116,7 +125,11 @@
 <textarea id="text" placeholder="ここに文字が入ります。マイクを押して話すか、直接打ってください。"></textarea>
 <div id="interim"></div>
 
-<button id="mic">🎙 話す</button>
+<div class="speak">
+  <button id="mic">🎙 話す</button>
+  <button id="maru" class="mark">。</button>
+  <button id="ten" class="mark">、</button>
+</div>
 
 <!-- 保存先の5択。押した瞬間にObsidianへ渡す -->
 <div class="dests">
@@ -202,6 +215,7 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null;      // 認識エンジン本体
 let listening = false; // いま聞いている最中か
 let stopWanted = false; // 自分で止めたのか、勝手に止まったのか
+let pending = "";    // 話している最中に押された句読点。確定時に使う
 
 if (!SR) {
   $mic.disabled = true;
@@ -219,14 +233,19 @@ if (!SR) {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const t = e.results[i][0].transcript;
       if (e.results[i].isFinal) {
-        // 確定した分に句読点を整えてから本文へ足す
-        $text.value += punctuate(t);
+        let s = punctuate(t);
+        // ボタンで指定された記号があれば、自動判定より優先する
+        if (pending) {
+          s = s.replace(/[。、？！]$/, "") + pending;
+          pending = "";
+        }
+        $text.value += s;
         $text.scrollTop = $text.scrollHeight;
       } else {
         interim += t;  // まだ確定していない分
       }
     }
-    $interim.textContent = interim;
+    $interim.textContent = interim + pending;
   };
 
   // iOSは黙っていると勝手に止まる。止めたつもりが無ければ、すぐ掛け直す
@@ -300,7 +319,26 @@ document.querySelectorAll(".dests button[data-key]").forEach(b => {
 });
 
 // ============================================================
-// 6. 消す
+// 6. 句読点ボタン —— 話している最中でも押せる
+// ============================================================
+// 話している最中は、まだ文が確定していない。だからその場では本文に入れず、
+// 「次に確定する分の末尾に付ける記号」として預かっておく。
+// 押したことが分かるよう、確定前の薄い文字の側にだけ先に見せる。
+function mark(ch) {
+  if (listening) {
+    pending = ch;                     // 押し直せば上書きされる
+    $interim.textContent += ch;
+  } else {
+    $text.value += ch;                // 止まっているときはその場で足す
+    $text.scrollTop = $text.scrollHeight;
+  }
+}
+
+document.getElementById("maru").onclick = () => mark("。");
+document.getElementById("ten").onclick  = () => mark("、");
+
+// ============================================================
+// 7. 消す
 // ============================================================
 document.getElementById("clear").onclick = () => {
   if ($text.value && confirm("消しますか")) { $text.value = ""; $interim.textContent = ""; }
