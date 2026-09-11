@@ -135,13 +135,12 @@
   <button id="ten" class="mark">、</button>
 </div>
 
-<!-- 保存先の5択。押した瞬間にObsidianへ渡す -->
+<!-- 保存先の4択。押した瞬間にObsidianへ渡す。行き先は今日のつぶやき.md一本で、時刻の後に括弧でタグが付く -->
 <div class="dests">
   <button data-key="work-t">仕事つぶやき</button>
   <button data-key="priv-t">プライベートつぶやき</button>
-  <button data-key="work-a">仕事について</button>
-  <button data-key="priv-a">プライベートについて</button>
   <button data-key="plan">予定</button>
+  <button data-key="issue">課題</button>
   <button id="clear" class="danger">消す</button>
 </div>
 
@@ -151,17 +150,17 @@
 
 <script>
 // ============================================================
-// 1. 設定 —— 5つの送り先
+// 1. 設定 —— 4つの送り先
 // ============================================================
-// 保存先の定義。
-//   ch     … どちらのDiscordチャンネルへ送るか（work / priv）
+// 保存先の定義。行き先はどれも「今日のつぶやき.md」一本。
+//   ch     … どちらのDiscordチャンネルへ送るか（work / priv）。plan・issueはprivを使う。
 //   prefix … PC側のbotが振り分けに使う接頭辞。無印はつぶやき扱い。
+//            botはこの接頭辞から、時刻の後に付ける括弧タグ（仕事／プライベート／予定／課題）を決める。
 const DESTS = {
   "work-t": { label: "仕事つぶやき",        ch: "work", prefix: ""   },
   "priv-t": { label: "プライベートつぶやき", ch: "priv", prefix: ""   },
-  "work-a": { label: "仕事について",        ch: "work", prefix: "録 " },
-  "priv-a": { label: "プライベートについて", ch: "priv", prefix: "録 " },
   "plan":   { label: "予定",               ch: "priv", prefix: "予 " },
+  "issue":  { label: "課題",               ch: "priv", prefix: "課 " },
 };
 
 // Discord の Webhook URL。
