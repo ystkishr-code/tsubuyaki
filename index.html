@@ -141,6 +141,7 @@
   <button data-key="priv-t">プライベートつぶやき</button>
   <button data-key="plan">予定</button>
   <button data-key="issue">課題</button>
+  <button data-key="talk">会話</button>
   <button id="clear" class="danger">消す</button>
 </div>
 
@@ -161,6 +162,9 @@ const DESTS = {
   "priv-t": { label: "プライベートつぶやき", ch: "priv", prefix: ""   },
   "plan":   { label: "予定",               ch: "priv", prefix: "予 " },
   "issue":  { label: "課題",               ch: "priv", prefix: "課 " },
+  // 会話：話した直後の「誰：何を言ったか」。botは今日のつぶやきへは入れず「今日話した人.md」へ書き、
+  // 書けたらDiscordの投稿を消す（2026-10-17、本人決定）。
+  "talk":   { label: "会話",               ch: "priv", prefix: "会 " },
 };
 
 // Discord の Webhook URL。
