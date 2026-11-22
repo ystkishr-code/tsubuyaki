@@ -140,7 +140,7 @@
   <button data-key="work-t">仕事つぶやき</button>
   <button data-key="priv-t">プライベートつぶやき</button>
   <button data-key="plan">予定</button>
-  <button data-key="issue">課題</button>
+  <button data-key="read">読書感想</button>
   <button data-key="talk">会話</button>
   <button id="clear" class="danger">消す</button>
 </div>
@@ -154,14 +154,15 @@
 // 1. 設定 —— 4つの送り先
 // ============================================================
 // 保存先の定義。行き先はどれも「今日のつぶやき.md」一本。
-//   ch     … どちらのDiscordチャンネルへ送るか（work / priv）。plan・issueはprivを使う。
+//   ch     … どちらのDiscordチャンネルへ送るか（work / priv）。plan・read・talkはprivを使う。
 //   prefix … PC側のbotが振り分けに使う接頭辞。無印はつぶやき扱い。
-//            botはこの接頭辞から、時刻の後に付ける括弧タグ（仕事／プライベート／予定／課題）を決める。
+//            botはこの接頭辞から、時刻の後に付ける括弧タグ（仕事／プライベート／予定）を決める。
 const DESTS = {
   "work-t": { label: "仕事つぶやき",        ch: "work", prefix: ""   },
   "priv-t": { label: "プライベートつぶやき", ch: "priv", prefix: ""   },
   "plan":   { label: "予定",               ch: "priv", prefix: "予 " },
-  "issue":  { label: "課題",               ch: "priv", prefix: "課 " },
+  // 読書感想：本ごとのファイルへ。題名の知らせが来たら本を切り替える（2026-11-22、課題と入れ替え）。
+  "read":   { label: "読書感想",           ch: "priv", prefix: "読 " },
   // 会話：話した直後の「誰：何を言ったか」。botは今日のつぶやきへは入れず「今日話した人.md」へ書き、
   // 書けたらDiscordの投稿を消す（2026-10-17、本人決定）。
   "talk":   { label: "会話",               ch: "priv", prefix: "会 " },
